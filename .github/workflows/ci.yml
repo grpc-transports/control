@@ -1,0 +1,133 @@
+# grpc-transports/control CI — vet, gofmt, the race detector, and a 100%
+# statement-coverage gate, on the three platforms whose socket code differs:
+#
+#   - Linux reads the peer uid with SO_PEERCRED;
+#   - darwin reads it with LOCAL_PEERCRED, and holds sun_path to 104 bytes;
+#   - Windows has AF_UNIX sockets but no uid and no file modes.
+#
+# Every test is real: a generated CA, server and client certificates and a
+# real mTLS handshake; real unix sockets, stale ones, live ones, and files
+# that are not sockets. Filesystem failures no test can provoke on demand go
+# through package seams.
+#
+# The gate is 100% on Linux and darwin, where every line compiled is
+# reachable. Windows compiles its own bind code and not the POSIX one, and
+# the tests that need a socket file reported as a socket skip there with the
+# reason; its run is reported, not gated.
+#
+# Pure-Go (CGO=0); only the race job enables cgo, which the race detector
+# needs on Linux. The library itself never does.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  CGO_ENABLED: 0
+  COVER_MIN: "100.0"
+
+jobs:
+  lint:
+    name: vet + gofmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          check-latest: true
+
+      - run: go version
+
+      - name: go vet (linux, darwin, windows, freebsd)
+        run: |
+          for os in linux darwin windows freebsd; do
+            echo "== $os"; GOOS=$os go vet ./...
+          done
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt needs to be run on:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: cross-build (every GOOS the package claims to build on)
+        run: |
+          for p in linux/amd64 linux/arm64 linux/s390x darwin/arm64 windows/amd64 windows/arm64 \
+                   freebsd/amd64 openbsd/amd64 netbsd/amd64 js/wasm wasip1/wasm; do
+            echo "== $p"; GOOS=${p%/*} GOARCH=${p#*/} go build ./...
+          done
+
+  test:
+    name: test + coverage (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            gate: true
+          - os: ubuntu-24.04-arm
+            gate: true
+          - os: macos-latest
+            gate: true
+          - os: windows-latest
+            gate: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          check-latest: true
+
+      - run: go version
+
+      - name: test
+        shell: bash
+        run: |
+          go test -v -count=1 -timeout 300s -coverprofile=cover.out ./...
+          go tool cover -func=cover.out | tee cover.txt
+
+      - name: coverage gate
+        if: matrix.gate
+        shell: bash
+        run: |
+          pct=$(go tool cover -func=cover.out | tail -n 1 | awk '{print $3}' | tr -d '%')
+          echo "total coverage: ${pct}% (min ${COVER_MIN}%)"
+          # A hard 100% statement-coverage floor, error branches included.
+          # Never lower it.
+          awk -v p="$pct" -v m="$COVER_MIN" 'BEGIN { exit !(p+0 >= m+0) }' || {
+            echo "::error::coverage ${pct}% < ${COVER_MIN}%"; exit 1; }
+
+  race:
+    name: race (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          check-latest: true
+
+      - name: go test -race
+        shell: bash
+        env:
+          CGO_ENABLED: 1
+        run: go test -race -count=1 -timeout 300s ./...
