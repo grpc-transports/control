@@ -278,11 +278,26 @@ type ClientConfig struct {
 	// ServerName is the name to verify the server's certificate against. It
 	// defaults to the host in Target.
 	ServerName string
+
+	// ServerUID is, for a unix Target, a uid the server may run as besides
+	// this process's own uid and root's, which are always accepted. Dial
+	// checks who is listening on the socket (the kernel's peer credentials)
+	// and refuses any other uid: a socket in a directory others can write may
+	// have been bound by an impostor, which would otherwise receive the CLI's
+	// commands. Forbidden for TCP, where the server's certificate is the
+	// check. On a platform without peer credentials (Windows, and the BSDs
+	// other than FreeBSD) the uid cannot be read and is not checked.
+	ServerUID *uint32
 }
 
 // Dial returns a client connection to an admin API. As with grpc.NewClient,
 // nothing is connected until the first RPC; what fails here is a
 // configuration that could never work, and unreadable files.
+//
+// For a unix target, each connection is refused unless the process
+// listening on the socket runs as this process's uid, as root, or as
+// ClientConfig.ServerUID: the RPC then fails with an error naming the uid
+// found.
 func Dial(c ClientConfig, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
 	ep, err := parseEndpoint(c.Target)
 	if err != nil {
@@ -293,10 +308,13 @@ func Dial(c ClientConfig, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
 		[3]string{"CertFile", "KeyFile", "ServerCAFile"}); err != nil {
 		return nil, err
 	}
+	if !ep.unix && c.ServerUID != nil {
+		return nil, fmt.Errorf("control: target %q is TCP, where the server's certificate is the check; ServerUID must be nil", c.Target)
+	}
 	if ep.unix {
 		path := ep.path
 		base := []grpc.DialOption{
-			grpc.WithTransportCredentials(unixCreds{}),
+			grpc.WithTransportCredentials(unixCreds{serverUID: c.ServerUID}),
 			grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
 				var d net.Dialer
 				return d.DialContext(ctx, "unix", path)
