@@ -67,6 +67,13 @@ cc, err := control.Dial(control.ClientConfig{Target: "admin.example.org:8443",
 
 **The peer uid comes from the kernel** at connection time — `SO_PEERCRED` on Linux, `LOCAL_PEERCRED` (what `getpeereid(3)` uses) on darwin and FreeBSD — and a client cannot forge it.
 
+**The client checks who is listening.** `Dial` reads the uid of the process behind the socket the same way and refuses to send anything unless it is the client's own uid, root's, or `ClientConfig.ServerUID` (a uid trusted in addition, for a daemon running as its own account). A socket in a directory others can write could have been bound first by an impostor; the RPC then fails naming the uid found. Where the platform has no peer credentials (Windows, the BSDs other than FreeBSD) the uid is not checked: keep the socket in a directory only trusted accounts can write.
+
+```go
+uid := uint32(997) // the daemon's account
+cc, err := control.Dial(control.ClientConfig{Target: "unix:///run/mydaemon/admin.sock", ServerUID: &uid})
+```
+
 The private directory costs up to 13 bytes of the socket address limit (104 bytes on darwin, 108 on Linux) while binding; a path that would not fit is refused with that reason rather than an `EINVAL`.
 
 ## TCP

@@ -565,3 +565,11 @@ func TestUnixCredsInterface(t *testing.T) {
 		t.Fatalf("SecurityLevel = %v", u.SecurityLevel)
 	}
 }
+
+func TestDialServerUIDForbiddenForTCP(t *testing.T) {
+	uid := uint32(1)
+	_, err := Dial(ClientConfig{Target: "127.0.0.1:1", CertFile: "c", KeyFile: "k", ServerCAFile: "ca", ServerUID: &uid})
+	if err == nil || !strings.Contains(err.Error(), "ServerUID must be nil") {
+		t.Fatalf("ServerUID with a TCP target: %v, want a refusal", err)
+	}
+}

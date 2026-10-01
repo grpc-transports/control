@@ -87,24 +87,39 @@ func (l *unixListener) Close() error {
 	return err
 }
 
-// unixCreds are the transport credentials of the unix listener. There is
+// unixCreds are the transport credentials of a unix connection. There is
 // nothing to negotiate on the wire — the socket's mode already decided who
-// may connect — so the handshake only asks the kernel who the peer is.
-type unixCreds struct{}
+// may connect — so the handshake asks the kernel who the peer is. On the
+// client side it also refuses a server running as a uid it does not trust.
+type unixCreds struct {
+	serverUID *uint32 // client side: a uid trusted besides ours and root's
+}
 
 func (unixCreds) ServerHandshake(c net.Conn) (net.Conn, credentials.AuthInfo, error) {
 	return c, newUnixAuthInfo(c), nil
 }
 
-func (unixCreds) ClientHandshake(_ context.Context, _ string, c net.Conn) (net.Conn, credentials.AuthInfo, error) {
+func (u unixCreds) ClientHandshake(_ context.Context, _ string, c net.Conn) (net.Conn, credentials.AuthInfo, error) {
+	if err := checkServerUID(c, u.trusted); err != nil {
+		c.Close()
+		return nil, nil, err
+	}
 	return c, newUnixAuthInfo(c), nil
+}
+
+// osGetuid is a seam: no test can run a server as another uid without root.
+var osGetuid = os.Getuid
+
+// trusted reports whether a server running as uid may receive our commands.
+func (u unixCreds) trusted(uid uint32) bool {
+	return uid == 0 || int64(uid) == int64(osGetuid()) || (u.serverUID != nil && uid == *u.serverUID)
 }
 
 func (unixCreds) Info() credentials.ProtocolInfo {
 	return credentials.ProtocolInfo{SecurityProtocol: "unix"}
 }
 
-func (unixCreds) Clone() credentials.TransportCredentials { return unixCreds{} }
+func (u unixCreds) Clone() credentials.TransportCredentials { return u }
 
 func (unixCreds) OverrideServerName(string) error { return nil }
 

@@ -7,6 +7,22 @@ and this project aims to adhere to [Semantic Versioning](https://semver.org/spec
 
 ## [Unreleased]
 
+## [v0.1.1] — 2026-10-01
+
+### Added
+
+- `ClientConfig.ServerUID *uint32`: a uid a unix-socket server may run as,
+  trusted besides the client's own and root's. Forbidden for TCP.
+
+### Fixed
+
+- `Dial` over a unix socket now checks the server's peer uid (kernel peer
+  credentials) and refuses a server running as any uid other than the
+  client's, root's or `ServerUID`: an impostor that bound the socket first
+  in a directory others can write no longer receives the CLI's commands.
+  Not checked where the platform has no peer credentials (Windows, the
+  BSDs other than FreeBSD).
+
 ## [v0.1.0] — 2026-09-29
 
 ### Added
