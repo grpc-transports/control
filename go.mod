@@ -1,6 +1,6 @@
 module github.com/grpc-transports/control
 
-go 1.27.1
+go 1.27.2
 
 require (
 	golang.org/x/sys v0.48.0
@@ -8,8 +8,8 @@ require (
 )
 
 require (
-	golang.org/x/net v0.57.0 // indirect
-	golang.org/x/text v0.40.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
