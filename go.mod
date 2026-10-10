@@ -3,7 +3,7 @@ module github.com/grpc-transports/control
 go 1.27.1
 
 require (
-	golang.org/x/sys v0.48.0
+	golang.org/x/sys v0.49.0
 	google.golang.org/grpc v1.84.0
 )
 
